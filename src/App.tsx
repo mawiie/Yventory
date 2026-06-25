@@ -41,6 +41,7 @@ import {
   fetchTags,
   inviteUser,
   recordInventoryMovement,
+  redeemInvite,
   updateInventoryItem,
   updateProfileRole,
 } from "./api/inventory";
@@ -113,11 +114,17 @@ function AppIcon({ size = "default" }: { size?: "default" | "large" }) {
   return <img className={`app-icon ${size === "large" ? "large" : ""}`} src="/ymen.jpeg" alt="" />;
 }
 
+function getInviteToken() {
+  const url = new URL(window.location.href);
+  return url.pathname === "/accept-invite" ? url.searchParams.get("token") : null;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
+  const inviteToken = getInviteToken();
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -164,7 +171,23 @@ export default function App() {
   }
 
   if (!session) {
-    return <AuthScreen />;
+    return <AuthScreen inviteToken={inviteToken} />;
+  }
+
+  if (inviteToken) {
+    return (
+      <AcceptInviteScreen
+        token={inviteToken}
+        email={session.user.email ?? ""}
+        onNotice={setNotice}
+        onAccepted={async () => {
+          if (session.user.id) {
+            setProfile(await fetchProfile(session.user.id));
+          }
+          window.history.replaceState({}, "", "/");
+        }}
+      />
+    );
   }
 
   return (
@@ -451,7 +474,7 @@ function ReadOnlyAccessNotice({ email }: { email: string }) {
   );
 }
 
-function AuthScreen() {
+function AuthScreen({ inviteToken }: { inviteToken?: string | null }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -471,7 +494,10 @@ function AuthScreen() {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: { data: { full_name: fullName } },
+          options: {
+            data: { full_name: fullName },
+            emailRedirectTo: inviteToken ? window.location.href : undefined,
+          },
         });
         if (error) throw error;
         setMessage("Account created. Check your email if confirmation is enabled.");
@@ -491,7 +517,11 @@ function AuthScreen() {
           <span>Yventory</span>
         </div>
         <h1>{mode === "signin" ? "Sign in" : "Create read-only account"}</h1>
-        <p>Staff accounts are invited by an admin. Public signups receive catalog access.</p>
+        <p>
+          {inviteToken
+            ? "Sign in or create an account with the invited email address to accept your role."
+            : "Staff accounts are invited by an admin. Public signups receive catalog access."}
+        </p>
         <form onSubmit={submit} className="form-stack">
           {mode === "signup" ? (
             <label>
@@ -520,6 +550,55 @@ function AuthScreen() {
         {message ? <p className="form-message">{message}</p> : null}
         <button className="text-button" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
           {mode === "signin" ? "Create a read-only user account" : "Use an existing account"}
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function AcceptInviteScreen({
+  token,
+  email,
+  onNotice,
+  onAccepted,
+}: {
+  token: string;
+  email: string;
+  onNotice: (message: string | null) => void;
+  onAccepted: () => Promise<void>;
+}) {
+  const [accepting, setAccepting] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function acceptInvite() {
+    setAccepting(true);
+    setMessage(null);
+    try {
+      const result = await redeemInvite(token);
+      onNotice(`Invitation accepted. Your account is now ${roleLabels[result.role]}.`);
+      await onAccepted();
+    } catch (error) {
+      setMessage(formatAppError(error, "Unable to accept invitation."));
+    } finally {
+      setAccepting(false);
+    }
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-panel">
+        <div className="brand auth-brand">
+          <AppIcon size="large" />
+          <span>Yventory</span>
+        </div>
+        <h1>Accept invitation</h1>
+        <p>Signed in as {email}. Accept this invitation to apply the invited account access.</p>
+        {message ? <p className="form-message error">{message}</p> : null}
+        <button className="primary-button" type="button" disabled={accepting} onClick={acceptInvite}>
+          <Check size={16} /> {accepting ? "Accepting..." : "Accept invitation"}
+        </button>
+        <button className="text-button" type="button" onClick={() => supabase.auth.signOut()}>
+          Sign in with a different account
         </button>
       </section>
     </main>
@@ -1490,6 +1569,8 @@ function AdminPanel({
   const [adminEmail, setAdminEmail] = useState("");
   const [adminFullName, setAdminFullName] = useState("");
   const [adminView, setAdminView] = useState<"accounts" | "admins">("accounts");
+  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
+  const [lastInviteEmailSent, setLastInviteEmailSent] = useState(false);
   const [loading, setLoading] = useState(true);
   const manageAdmins = canManageAdmins(currentProfile?.role);
   const accountProfiles = profiles.filter((profile) => profile.role !== "admin" && profile.role !== "super_admin");
@@ -1513,11 +1594,13 @@ function AdminPanel({
   async function sendInvite(event: React.FormEvent) {
     event.preventDefault();
     try {
-      await inviteUser(email, role, fullName);
+      const result = await inviteUser(email, role, fullName);
       setEmail("");
       setFullName("");
       setRole("staff");
-      onNotice("Invitation sent.");
+      setLastInviteUrl(result.inviteUrl);
+      setLastInviteEmailSent(result.emailSent);
+      onNotice(result.emailSent ? "Invitation sent." : "Invitation link created.");
       await loadProfiles();
     } catch (error) {
       onNotice(formatAppError(error, "Unable to send invite."));
@@ -1528,10 +1611,12 @@ function AdminPanel({
     event.preventDefault();
     if (!manageAdmins) return;
     try {
-      await inviteUser(adminEmail, "admin", adminFullName);
+      const result = await inviteUser(adminEmail, "admin", adminFullName);
       setAdminEmail("");
       setAdminFullName("");
-      onNotice("Admin invitation sent.");
+      setLastInviteUrl(result.inviteUrl);
+      setLastInviteEmailSent(result.emailSent);
+      onNotice(result.emailSent ? "Admin invitation sent." : "Admin invitation link created.");
       await loadProfiles();
     } catch (error) {
       onNotice(formatAppError(error, "Unable to send admin invite."));
@@ -1568,7 +1653,7 @@ function AdminPanel({
     <main className="admin-page">
       <section className="admin-invite">
         <h2>Invite account</h2>
-        <form className="form-grid" onSubmit={sendInvite}>
+        <form className="admin-invite-form" onSubmit={sendInvite}>
           <label>
             Full name
             <input value={fullName} onChange={(event) => setFullName(event.target.value)} />
@@ -1588,6 +1673,23 @@ function AdminPanel({
             <UserPlus size={16} /> Send invite
           </button>
         </form>
+        {lastInviteUrl ? (
+          <div className="invite-link-panel">
+            <p>
+              {lastInviteEmailSent
+                ? "Email sent. You can also share this invite link manually."
+                : "Email sending is not configured. Share this invite link manually."}
+            </p>
+            <input readOnly value={lastInviteUrl} onFocus={(event) => event.currentTarget.select()} />
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(lastInviteUrl)}
+            >
+              Copy link
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <section className="profile-table">
@@ -1664,6 +1766,7 @@ function AdminPanel({
                 onChange={(event) => changeRole(profile, event.target.value as AppRole)}
               >
                 {adminView === "admins" ? <option value="admin">Admin</option> : null}
+                {adminView === "accounts" && manageAdmins ? <option value="admin">Admin</option> : null}
                 <option value="staff">Staff</option>
                 <option value="user">Read-only user</option>
                 {isSuperAdmin ? <option value="super_admin">Super admin</option> : null}

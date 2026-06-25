@@ -1104,6 +1104,23 @@ textarea {
 .admin-invite {
   display: grid;
   gap: var(--space-4);
+  align-content: start;
+}
+
+.admin-invite-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.admin-invite-form label {
+  min-width: 0;
+}
+
+.admin-invite-form .primary-button {
+  min-height: 44px;
+  align-self: end;
 }
 
 .admin-section-header {
@@ -1205,6 +1222,25 @@ textarea {
   background: var(--color-white);
   border-radius: var(--radius-md);
   padding: var(--space-3);
+}
+
+.form-message.error {
+  border-left-color: var(--color-rust);
+}
+
+.invite-link-panel {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-linen);
+}
+
+.invite-link-panel p {
+  margin: 0;
+  color: var(--color-mid-grey);
+  font: var(--text-meta);
 }
 
 .empty-state,
@@ -1352,6 +1388,7 @@ textarea {
   }
 
   .form-grid,
+  .admin-invite-form,
   .custom-location-row,
   .new-collection-grid,
   .photo-inputs,

@@ -304,16 +304,34 @@ export async function recordInventoryMovement({
   if (error) throw error;
 }
 
-export async function inviteUser(email: string, role: AppRole, fullName: string) {
-  const { error } = await supabase.functions.invoke("invite-user", {
+export type InviteResult = {
+  inviteUrl: string;
+  emailSent: boolean;
+};
+
+export async function inviteUser(email: string, role: AppRole, fullName: string): Promise<InviteResult> {
+  const { data, error } = await supabase.functions.invoke<InviteResult>("invite-user", {
     body: {
       email: email.trim(),
       role,
       fullName: fullName.trim() || null,
+      siteUrl: window.location.origin,
     },
   });
 
   if (error) throw error;
+  if (!data?.inviteUrl) throw new Error("Invite link was not returned.");
+  return data;
+}
+
+export async function redeemInvite(token: string): Promise<{ role: AppRole }> {
+  const { data, error } = await supabase.functions.invoke<{ role: AppRole }>("redeem-invite", {
+    body: { token },
+  });
+
+  if (error) throw error;
+  if (!data?.role) throw new Error("Invite redemption did not return a role.");
+  return data;
 }
 
 function parseTags(tags: string) {

@@ -55,11 +55,13 @@ Deno.serve(async (request) => {
       email?: string;
       role?: AppRole;
       fullName?: string | null;
+      siteUrl?: string;
     };
 
     const email = body.email?.trim().toLowerCase();
     const role = body.role ?? "staff";
     const fullName = body.fullName?.trim() || null;
+    const siteUrl = normalizeSiteUrl(body.siteUrl);
 
     if (!email) {
       return json({ error: "Email is required." }, 400);
@@ -73,39 +75,108 @@ Deno.serve(async (request) => {
       return json({ error: "Only super admins can invite admins." }, 403);
     }
 
-    const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+    const token = crypto.randomUUID() + crypto.randomUUID();
+    const tokenHash = await sha256(token);
+    const inviteUrl = `${siteUrl}/accept-invite?token=${encodeURIComponent(token)}`;
+
+    const { error: inviteError } = await adminClient.from("pending_invites").insert({
       email,
-      {
-        data: {
-          full_name: fullName,
-          invited_role: role,
-        },
-      },
-    );
+      full_name: fullName,
+      role,
+      token_hash: tokenHash,
+      invited_by: user.id,
+    });
 
     if (inviteError) {
       throw inviteError;
     }
 
-    if (invited.user?.id) {
-      const { error: profileError } = await adminClient.from("profiles").upsert({
-        id: invited.user.id,
-        email,
-        full_name: fullName,
-        role,
-      });
+    const emailSent = await sendInviteEmail({
+      email,
+      fullName,
+      role,
+      inviteUrl,
+    }).catch((error) => {
+      console.error(error);
+      return false;
+    });
 
-      if (profileError) {
-        throw profileError;
-      }
-    }
-
-    return json({ ok: true });
+    return json({ ok: true, inviteUrl, emailSent });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invite failed.";
     return json({ error: message }, 500);
   }
 });
+
+function normalizeSiteUrl(siteUrl?: string) {
+  if (!siteUrl) throw new Error("Site URL is required.");
+  const url = new URL(siteUrl);
+  return url.origin;
+}
+
+async function sha256(value: string) {
+  const encoded = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function sendInviteEmail({
+  email,
+  fullName,
+  role,
+  inviteUrl,
+}: {
+  email: string;
+  fullName: string | null;
+  role: AppRole;
+  inviteUrl: string;
+}) {
+  const resendApiKey = Deno.env.get("RESEND_API_KEY");
+  const fromEmail = Deno.env.get("INVITE_FROM_EMAIL");
+
+  if (!resendApiKey || !fromEmail) {
+    return false;
+  }
+
+  const roleLabel = role === "user" ? "read-only" : role.replace("_", " ");
+  const greeting = fullName ? `Hi ${fullName},` : "Hi,";
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resendApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: email,
+      subject: "You're invited to Yventory",
+      html: `
+        <p>${greeting}</p>
+        <p>You have been invited to Yventory with <strong>${roleLabel}</strong> access.</p>
+        <p>Create an account or sign in with this email address, then accept the invite:</p>
+        <p><a href="${inviteUrl}">Accept invitation</a></p>
+        <p>This invitation expires in 7 days.</p>
+      `,
+      text: `${greeting}
+
+You have been invited to Yventory with ${roleLabel} access.
+
+Create an account or sign in with this email address, then accept the invite:
+${inviteUrl}
+
+This invitation expires in 7 days.`,
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`Invite was created, but email sending failed: ${message}`);
+  }
+
+  return true;
+}
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
