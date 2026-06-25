@@ -481,6 +481,7 @@ function AuthScreen({ inviteToken }: { inviteToken?: string | null }) {
   const [fullName, setFullName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const confirmationRedirectTo = inviteToken ? window.location.href : window.location.origin;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -496,11 +497,11 @@ function AuthScreen({ inviteToken }: { inviteToken?: string | null }) {
           password,
           options: {
             data: { full_name: fullName },
-            emailRedirectTo: inviteToken ? window.location.href : undefined,
+            emailRedirectTo: confirmationRedirectTo,
           },
         });
         if (error) throw error;
-        setMessage("Account created. Check your email if confirmation is enabled.");
+        setMessage("Account created. If you are not signed in automatically, sign in with these credentials.");
       }
     } catch (error) {
       setMessage(formatAppError(error, "Authentication failed."));

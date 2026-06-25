@@ -319,7 +319,7 @@ export async function inviteUser(email: string, role: AppRole, fullName: string)
     },
   });
 
-  if (error) throw error;
+  if (error) throw await readableFunctionError(error);
   if (!data?.inviteUrl) throw new Error("Invite link was not returned.");
   return data;
 }
@@ -329,9 +329,31 @@ export async function redeemInvite(token: string): Promise<{ role: AppRole }> {
     body: { token },
   });
 
-  if (error) throw error;
+  if (error) throw await readableFunctionError(error);
   if (!data?.role) throw new Error("Invite redemption did not return a role.");
   return data;
+}
+
+async function readableFunctionError(error: unknown) {
+  const context = error && typeof error === "object" ? (error as { context?: unknown }).context : null;
+
+  if (context instanceof Response) {
+    const status = context.status;
+    try {
+      const body = (await context.clone().json()) as { error?: unknown; message?: unknown };
+      const message = typeof body.error === "string"
+        ? body.error
+        : typeof body.message === "string"
+          ? body.message
+          : "";
+      if (message) return new Error(`${message} (status: ${status})`);
+    } catch {
+      const text = await context.clone().text().catch(() => "");
+      if (text.trim()) return new Error(`${text.trim()} (status: ${status})`);
+    }
+  }
+
+  return error instanceof Error ? error : new Error("Edge Function failed.");
 }
 
 function parseTags(tags: string) {

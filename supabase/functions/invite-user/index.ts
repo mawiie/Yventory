@@ -61,7 +61,7 @@ Deno.serve(async (request) => {
     const email = body.email?.trim().toLowerCase();
     const role = body.role ?? "staff";
     const fullName = body.fullName?.trim() || null;
-    const siteUrl = normalizeSiteUrl(body.siteUrl);
+    const siteUrl = normalizeSiteUrl(Deno.env.get("APP_SITE_URL") || body.siteUrl);
 
     if (!email) {
       return json({ error: "Email is required." }, 400);
