@@ -51,6 +51,7 @@ import type {
   Category,
   Collection,
   InventoryMovementAction,
+  InventoryVisibility,
   InventoryItem,
   ItemFormValues,
   Profile,
@@ -65,6 +66,7 @@ const emptyForm: ItemFormValues = {
   quantity: 1,
   categoryId: "",
   collectionId: "",
+  visibility: "all",
   locationId: "",
   locationDetails: "",
   tags: "",
@@ -80,6 +82,18 @@ const roleLabels: Record<AppRole, string> = {
   admin: "Admin",
   staff: "Staff",
   user: "Read-only",
+};
+
+const visibilityLabels: Record<InventoryVisibility, string> = {
+  all: "All",
+  staff: "Staff",
+  admin: "Admin",
+};
+
+const visibilityDescriptions: Record<InventoryVisibility, string> = {
+  all: "Visible to all signed-in users",
+  staff: "Visible to staff and admins only",
+  admin: "Visible to admins only",
 };
 
 function getItemStatus(item: InventoryItem): { state: ItemStatus; label: string } {
@@ -676,6 +690,7 @@ function ItemCard({
   const status = getItemStatus(item);
   const visibleTags = item.tags.slice(0, 3);
   const hiddenTags = item.tags.length - visibleTags.length;
+  const isRestricted = item.visibility !== "all";
 
   return (
     <button
@@ -709,6 +724,7 @@ function ItemCard({
             {item.collection.name}
           </span>
         ) : null}
+        {isRestricted ? <span className="restricted-chip">{visibilityLabels[item.visibility]}</span> : null}
         {item.tags.length > 0 ? (
           <span className="card-badges">
             {visibleTags.map((tag) => (
@@ -758,6 +774,7 @@ function ItemDetail({
     quantity: item.quantity,
     categoryId: item.category?.id ?? "",
     collectionId: item.collection?.id ?? "",
+    visibility: item.visibility,
     locationId: item.location?.id ?? "",
     locationDetails: item.locationDetails ?? "",
     tags: item.tags.map((tag) => tag.name).join(", "),
@@ -845,6 +862,9 @@ function ItemDetail({
           Collection <strong>{item.collection.name}</strong>
         </p>
       ) : null}
+      <p className="visibility-line">
+        Visibility <strong>{visibilityDescriptions[item.visibility]}</strong>
+      </p>
       <div className="stock-summary">
         <span>{item.quantity} available</span>
         <span>{item.borrowedQuantity} borrowed</span>
@@ -1036,6 +1056,8 @@ function ItemForm({
   const [availableCollections, setAvailableCollections] = useState<Collection[]>(collections);
   const [collectionChoice, setCollectionChoice] = useState(initialValues.collectionId);
   const [newCollectionName, setNewCollectionName] = useState("");
+  const [newCollectionVisibility, setNewCollectionVisibility] = useState<InventoryVisibility>(initialValues.visibility);
+  const [collectionVisibilityDecision, setCollectionVisibilityDecision] = useState<"pending" | "accepted" | "override" | null>(null);
   const [locationChoice, setLocationChoice] = useState(initialValues.locationId || (initialValues.locationDetails ? "__other__" : ""));
   const [customLocation, setCustomLocation] = useState(initialValues.locationDetails);
   const [savingLocation, setSavingLocation] = useState(false);
@@ -1046,6 +1068,8 @@ function ItemForm({
     setQuantity(String(initialValues.quantity));
     setCollectionChoice(initialValues.collectionId);
     setNewCollectionName("");
+    setNewCollectionVisibility(initialValues.visibility);
+    setCollectionVisibilityDecision(null);
     setLocationChoice(initialValues.locationId || (initialValues.locationDetails ? "__other__" : ""));
     setCustomLocation(initialValues.locationDetails);
   }, [initialValues]);
@@ -1065,12 +1089,16 @@ function ItemForm({
       const parsedQuantity = Number(quantity || "0");
       let nextValues = { ...values, quantity: parsedQuantity };
       if (!values.name.trim()) throw new Error("Item name is required.");
+      if (collectionVisibilityDecision === "pending") {
+        throw new Error("Choose how to handle this collection visibility before saving.");
+      }
       if (collectionChoice === "__new__") {
         if (!newCollectionName.trim()) throw new Error("Collection name is required.");
         const collection = await createCollection({
           name: newCollectionName,
           locationId: values.locationId,
           locationDetails: values.locationDetails,
+          visibility: newCollectionVisibility,
         });
         setAvailableCollections((current) => {
           const withoutDuplicate = current.filter((entry) => entry.id !== collection.id);
@@ -1079,6 +1107,7 @@ function ItemForm({
         nextValues = {
           ...nextValues,
           collectionId: collection.id,
+          visibility: collection.visibility,
           locationId: collection.location?.id ?? "",
           locationDetails: collection.locationDetails ?? "",
         };
@@ -1093,6 +1122,8 @@ function ItemForm({
         setQuantity(String(emptyForm.quantity));
         setCollectionChoice("");
         setNewCollectionName("");
+        setNewCollectionVisibility(emptyForm.visibility);
+        setCollectionVisibilityDecision(null);
         setLocationChoice("");
         setCustomLocation("");
       }
@@ -1132,6 +1163,15 @@ function ItemForm({
       ? availableCollections.find((collection) => collection.id === collectionChoice) ?? null
       : null;
   const collectionControlsLocation = Boolean(selectedCollection);
+  const restrictedSelectedCollection = selectedCollection && selectedCollection.visibility !== "all" ? selectedCollection : null;
+  const activeCollectionVisibilityDecision =
+    restrictedSelectedCollection && collectionVisibilityDecision === null
+      ? values.visibility === restrictedSelectedCollection.visibility
+        ? "accepted"
+        : "override"
+      : collectionVisibilityDecision;
+  const collectionControlsVisibility =
+    Boolean(restrictedSelectedCollection) && activeCollectionVisibilityDecision !== "override";
 
   return (
     <form className="item-form" onSubmit={submit}>
@@ -1170,11 +1210,13 @@ function ItemForm({
 
               if (!nextCollection) {
                 setValues({ ...values, collectionId: "" });
+                setCollectionVisibilityDecision(null);
                 return;
               }
 
               if (nextCollection === "__new__") {
-                setValues({ ...values, collectionId: "" });
+                setValues({ ...values, collectionId: "", visibility: newCollectionVisibility });
+                setCollectionVisibilityDecision(null);
                 return;
               }
 
@@ -1182,9 +1224,11 @@ function ItemForm({
               setValues({
                 ...values,
                 collectionId: nextCollection,
+                visibility: collection?.visibility ?? values.visibility,
                 locationId: collection?.location?.id ?? "",
                 locationDetails: collection?.locationDetails ?? "",
               });
+              setCollectionVisibilityDecision(collection?.visibility && collection.visibility !== "all" ? "pending" : null);
               setLocationChoice(collection?.location?.id ?? (collection?.locationDetails ? "__other__" : ""));
               setCustomLocation(collection?.locationDetails ?? "");
             }}
@@ -1196,6 +1240,18 @@ function ItemForm({
               </option>
             ))}
             <option value="__new__">Start new collection</option>
+          </select>
+        </label>
+        <label>
+          Visibility
+          <select
+            value={values.visibility}
+            disabled={collectionControlsVisibility}
+            onChange={(event) => setValues({ ...values, visibility: event.target.value as InventoryVisibility })}
+          >
+            <option value="all">All</option>
+            <option value="staff">Staff</option>
+            <option value="admin">Admin</option>
           </select>
         </label>
         <label>
@@ -1238,21 +1294,87 @@ function ItemForm({
         </label>
       </div>
       {collectionChoice === "__new__" ? (
-        <label>
-          New collection name
-          <input
-            value={newCollectionName}
-            required
-            placeholder="African trip items"
-            onChange={(event) => setNewCollectionName(event.target.value)}
-          />
-        </label>
+        <div className="new-collection-grid">
+          <label>
+            New collection name
+            <input
+              value={newCollectionName}
+              required
+              placeholder="African trip items"
+              onChange={(event) => setNewCollectionName(event.target.value)}
+            />
+          </label>
+          <label>
+            Collection visibility
+            <select
+              value={newCollectionVisibility}
+              onChange={(event) => {
+                const visibility = event.target.value as InventoryVisibility;
+                setNewCollectionVisibility(visibility);
+                setValues({ ...values, visibility });
+              }}
+            >
+              <option value="all">All</option>
+              <option value="staff">Staff</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+        </div>
       ) : null}
       {selectedCollection ? (
         <div className="collection-location-callout">
           Store this item in{" "}
           <strong>{selectedCollection.location?.name ?? selectedCollection.locationDetails}</strong>
           , the location set for {selectedCollection.name}.
+        </div>
+      ) : null}
+      {restrictedSelectedCollection && activeCollectionVisibilityDecision === "pending" ? (
+        <div className="collection-visibility-callout">
+          <p>
+            Adding this item to <strong>{restrictedSelectedCollection.name}</strong> will make it{" "}
+            <strong>{visibilityDescriptions[restrictedSelectedCollection.visibility].toLowerCase()}</strong>.
+          </p>
+          <div className="callout-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setValues({ ...values, visibility: restrictedSelectedCollection.visibility });
+                setCollectionVisibilityDecision("accepted");
+              }}
+            >
+              Continue
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                setCollectionChoice("");
+                setValues({ ...values, collectionId: "" });
+                setCollectionVisibilityDecision(null);
+              }}
+            >
+              Go back
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => setCollectionVisibilityDecision("override")}
+            >
+              Change just this item
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {restrictedSelectedCollection && activeCollectionVisibilityDecision === "accepted" ? (
+        <div className="collection-visibility-callout muted">
+          This item is using {visibilityLabels[restrictedSelectedCollection.visibility]} visibility from{" "}
+          {restrictedSelectedCollection.name}.
+        </div>
+      ) : null}
+      {restrictedSelectedCollection && activeCollectionVisibilityDecision === "override" ? (
+        <div className="collection-visibility-callout muted">
+          This item is overriding the collection visibility. Choose the item visibility above.
         </div>
       ) : null}
       {collectionControlsLocation ? null : (

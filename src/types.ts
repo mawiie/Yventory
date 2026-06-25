@@ -1,5 +1,7 @@
 export type AppRole = "super_admin" | "admin" | "staff" | "user";
 
+export type InventoryVisibility = "all" | "staff" | "admin";
+
 export type InventoryMovementAction =
   | "initial_stock"
   | "add_stock"
@@ -35,6 +37,7 @@ export type StorageLocation = {
 export type Collection = {
   id: string;
   name: string;
+  visibility: InventoryVisibility;
   location: StorageLocation | null;
   locationDetails: string | null;
   created_at: string;
@@ -55,6 +58,7 @@ export type InventoryItem = {
   borrowedQuantity: number;
   created_at: string;
   updated_at: string;
+  visibility: InventoryVisibility;
   category: Category | null;
   collection: Collection | null;
   location: StorageLocation | null;
@@ -80,6 +84,7 @@ export type ItemFormValues = {
   quantity: number;
   categoryId: string;
   collectionId: string;
+  visibility: InventoryVisibility;
   locationId: string;
   locationDetails: string;
   tags: string;

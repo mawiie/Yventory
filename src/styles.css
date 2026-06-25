@@ -676,6 +676,15 @@ textarea:focus-visible {
   font: var(--text-meta);
 }
 
+.restricted-chip {
+  width: fit-content;
+  padding: 5px 9px;
+  background: var(--color-amber-10);
+  color: var(--color-body);
+  font: var(--text-meta);
+  font-weight: 800;
+}
+
 .quantity-row {
   display: flex;
   align-items: end;
@@ -964,6 +973,38 @@ textarea:focus-visible {
   background: var(--color-amber-10);
   color: var(--color-body);
   padding: var(--space-3);
+}
+
+.collection-visibility-callout {
+  border: 1px solid var(--color-amber);
+  border-radius: var(--radius-md);
+  background: var(--color-amber-10);
+  color: var(--color-body);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.collection-visibility-callout p {
+  margin: 0;
+}
+
+.collection-visibility-callout.muted {
+  border-color: var(--color-border);
+  background: var(--color-linen);
+  color: var(--color-mid-grey);
+}
+
+.callout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.new-collection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
 }
 
 .item-form,
@@ -1312,6 +1353,7 @@ textarea {
 
   .form-grid,
   .custom-location-row,
+  .new-collection-grid,
   .photo-inputs,
   .movement-actions,
   .movement-grid,

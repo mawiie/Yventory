@@ -4,6 +4,7 @@ import type {
   Category,
   Collection,
   InventoryMovementAction,
+  InventoryVisibility,
   InventoryItem,
   ItemFormValues,
   ItemPhoto,
@@ -21,6 +22,7 @@ type RawInventoryItem = {
   borrowed_quantity: number | null;
   created_at: string;
   updated_at: string;
+  visibility: InventoryVisibility | null;
   category: Category | Category[] | null;
   collection: RawCollection | RawCollection[] | null;
   location: StorageLocation | StorageLocation[] | null;
@@ -32,6 +34,7 @@ type RawInventoryItem = {
 type RawCollection = {
   id: string;
   name: string;
+  visibility: InventoryVisibility | null;
   location: StorageLocation | StorageLocation[] | null;
   location_details: string | null;
   created_at: string;
@@ -131,7 +134,7 @@ export async function createStorageLocation(name: string): Promise<StorageLocati
 export async function fetchCollections(): Promise<Collection[]> {
   const { data, error } = await supabase
     .from("collections")
-    .select("id,name,location_details,created_at,location:storage_locations(id,name,is_default)")
+    .select("id,name,visibility,location_details,created_at,location:storage_locations(id,name,is_default)")
     .order("name");
 
   if (error) throw error;
@@ -142,10 +145,12 @@ export async function createCollection({
   name,
   locationId,
   locationDetails,
+  visibility,
 }: {
   name: string;
   locationId: string;
   locationDetails: string;
+  visibility: InventoryVisibility;
 }): Promise<Collection> {
   const cleanedName = name.trim();
   if (!cleanedName) throw new Error("Collection name is required.");
@@ -155,10 +160,11 @@ export async function createCollection({
     .from("collections")
     .insert({
       name: cleanedName,
+      visibility,
       location_id: locationId || null,
       location_details: locationDetails.trim() || null,
     })
-    .select("id,name,location_details,created_at,location:storage_locations(id,name,is_default)")
+    .select("id,name,visibility,location_details,created_at,location:storage_locations(id,name,is_default)")
     .single();
 
   if (error) throw error;
@@ -169,7 +175,7 @@ export async function fetchInventory(includeUnavailable: boolean): Promise<Inven
   let query = supabase
     .from("items")
     .select(
-      "id,name,description,quantity,borrowed_quantity,created_at,updated_at,location_details,category:categories(id,name,slug,position),collection:collections(id,name,location_details,created_at,location:storage_locations(id,name,is_default)),location:storage_locations(id,name,is_default),item_tags(tag:tags(id,name)),item_photos(id,storage_path,alt_text)",
+      "id,name,description,quantity,borrowed_quantity,visibility,created_at,updated_at,location_details,category:categories(id,name,slug,position),collection:collections(id,name,visibility,location_details,created_at,location:storage_locations(id,name,is_default)),location:storage_locations(id,name,is_default),item_tags(tag:tags(id,name)),item_photos(id,storage_path,alt_text)",
     )
     .order("updated_at", { ascending: false });
 
@@ -213,6 +219,7 @@ export async function createInventoryItem(values: ItemFormValues) {
       name: values.name.trim(),
       description: values.description.trim() || null,
       quantity: values.quantity,
+      visibility: values.visibility,
       category_id: values.categoryId || null,
       collection_id: values.collectionId || null,
       location_id: values.locationId || null,
@@ -249,6 +256,7 @@ export async function updateInventoryItem(itemId: string, values: ItemFormValues
     .update({
       name: values.name.trim(),
       description: values.description.trim() || null,
+      visibility: values.visibility,
       category_id: values.categoryId || null,
       collection_id: values.collectionId || null,
       location_id: values.locationId || null,
@@ -386,6 +394,7 @@ async function addSignedPhotoUrls(rawItems: RawInventoryItem[]): Promise<Invento
     description: item.description,
     quantity: item.quantity,
     borrowedQuantity: item.borrowed_quantity ?? 0,
+    visibility: item.visibility ?? "all",
     created_at: item.created_at,
     updated_at: item.updated_at,
     category: single(item.category),
@@ -407,6 +416,7 @@ function mapCollection(collection: RawCollection): Collection {
   return {
     id: collection.id,
     name: collection.name,
+    visibility: collection.visibility ?? "all",
     location: single(collection.location),
     locationDetails: collection.location_details,
     created_at: collection.created_at,

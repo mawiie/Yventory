@@ -26,6 +26,9 @@ A minimal donation inventory app for NGOs receiving, sorting, and distributing d
    - `supabase/migrations/002_storage_locations.sql`
    - `supabase/migrations/003_inventory_movements.sql`
    - `supabase/migrations/004_collections.sql`
+   - `supabase/migrations/005_add_super_admin_role.sql`
+   - `supabase/migrations/006_super_admin_policies.sql`
+   - `supabase/migrations/007_inventory_visibility.sql`
 
 4. Deploy the invite function:
 
